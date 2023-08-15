@@ -1,0 +1,202 @@
+--Question 1
+SELECT user_id, spend, transaction_date 
+FROM (
+  SELECT 
+    user_id, 
+    spend, 
+    transaction_date,
+    RANK() OVER (PARTITION BY user_id ORDER BY transaction_date) AS row_num
+  FROM transactions
+) AS ranked_transactions
+WHERE row_num = 3;
+
+--Quetion 2
+SELECT
+  ab.age_bucket,
+    ROUND((SUM(CASE WHEN a.activity_type = 'send' THEN a.time_spent ELSE 0 END) / 
+        SUM(CASE WHEN a.activity_type IN ('open', 'send') THEN a.time_spent ELSE 0 END)) * 100.0, 2) AS percentage_sending,
+  
+  ROUND((SUM(CASE WHEN a.activity_type = 'open' THEN a.time_spent ELSE 0 END) / 
+        SUM(CASE WHEN a.activity_type IN ('open', 'send') THEN a.time_spent ELSE 0 END)) * 100.0, 2) AS percentage_opening
+
+FROM activities a
+LEFT JOIN age_breakdown ab ON a.user_id = ab.user_id
+GROUP BY ab.age_bucket
+;
+
+--Question 3
+SELECT
+  user_id,
+  tweet_date,
+  ROUND(AVG(tweet_count) OVER (PARTITION BY user_id ORDER BY tweet_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 2) AS rolling_average
+FROM tweets;
+
+--Question 4
+/*SELECT
+  category,
+  product,
+  total_spend
+FROM (
+  SELECT
+    category,
+    product,
+    SUM(CASE WHEN product = 'refrigerator' THEN spend
+             WHEN product = 'washing machine' THEN spend
+             WHEN product = 'wireless headset' THEN spend
+             WHEN product = 'vacuum' THEN spend
+             WHEN product = 'computer mouse' THEN spend
+             ELSE 0 END) AS total_spend,
+    ROW_NUMBER() OVER (PARTITION BY category ORDER BY SUM(spend) DESC) AS rn
+  FROM product_spend
+  WHERE EXTRACT(YEAR FROM transaction_date) = 2022
+  GROUP BY category, product
+) ranked
+WHERE rn <= 2
+ORDER BY category, total_spend DESC;
+*/
+
+WITH cte AS (
+    SELECT category, product, SUM(spend) AS total_spend, RANK() OVER(
+           PARTITION BY category ORDER BY SUM(spend) DESC) AS ranking
+    FROM product_spend
+    WHERE EXTRACT(YEAR FROM DATE(transaction_date)) = 2022
+    GROUP BY category, product
+)
+SELECT category, product, total_spend
+FROM cte 
+WHERE ranking <= 2
+
+--Question 5
+SELECT
+    artist_name,
+    artist_rank
+FROM (
+    SELECT
+        artist_name,
+        DENSE_RANK() OVER (ORDER BY SUM(song_appearances) DESC) AS artist_rank
+    FROM (
+        SELECT
+            a.artist_name,
+            gsr.song_id,
+            COUNT(*) AS song_appearances
+        FROM artists a
+        JOIN songs s ON a.artist_id = s.artist_id
+        JOIN global_song_rank gsr ON s.song_id = gsr.song_id
+        WHERE gsr.rank <= 10
+        GROUP BY a.artist_name, gsr.song_id
+    ) AS artist_song_counts
+    GROUP BY artist_name
+) AS ranked_artists
+WHERE artist_rank <= 5
+ORDER BY artist_rank;
+
+--Question 6
+--This was my first attempt that got me working in the right direction
+/*WITH text_count_cte AS
+(
+SELECT
+  COUNT(t.text_id) AS text_count,
+  t.email_id,
+  e.user_id
+FROM emails e
+LEFT JOIN texts t  
+  ON e.email_id=t.email_id
+GROUP BY
+  t.email_id,
+  e.user_id
+ORDER BY
+  text_count DESC
+)
+
+SELECT 
+
+  (SELECT
+    COUNT(user_id)
+  FROM text_count_cte
+  WHERE text_count =0) AS unverified,
+  (SELECT
+    COUNT(user_id)
+  FROM text_count_cte
+  WHERE text_count>0) AS verified,
+  COUNT(verified)/COUNT(unverified) AS pct 
+FROM text_count_cte;*/
+
+--This was my second attempt which got me closer
+/*WITH ActivationCounts AS (
+    SELECT
+        e.user_id,
+        COUNT(DISTINCT CASE WHEN t.signup_action = 'Confirmed' THEN t.text_id END) AS confirmed_count
+    FROM emails e
+    LEFT JOIN texts t ON e.email_id = t.email_id
+    GROUP BY e.user_id
+)
+SELECT
+    ROUND(
+        SUM(CASE WHEN confirmed_count > 0 THEN 1 ELSE 0 END)::NUMERIC / COUNT(DISTINCT user_id),
+        2
+    ) AS confirm_rate
+FROM ActivationCounts;*/
+
+--Here is my final working solution
+WITH text_count_cte AS (
+    SELECT
+        e.user_id,
+        CASE WHEN t.signup_action = 'Confirmed' THEN 1 ELSE 0 END AS is_verified
+    FROM emails e
+    LEFT JOIN texts t  
+      ON e.email_id = t.email_id
+)
+SELECT 
+    ROUND(
+        SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END)::NUMERIC / COUNT(DISTINCT user_id),
+        2
+    ) AS pct_verified
+FROM text_count_cte;
+
+--Question 7
+--This query worked but I wanted to make it dynamic so if more categories were introduced it would still work
+/*SELECT
+  cc.customer_id
+FROM customer_contracts cc
+JOIN products p ON cc.product_id = p.product_id
+WHERE p.product_category IN ('Analytics', 'Containers', 'Compute')
+GROUP BY cc.customer_id
+HAVING COUNT(DISTINCT p.product_category) = 3;*/
+
+--Final working solution, very clean did not need a CTE
+SELECT
+  cc.customer_id
+FROM customer_contracts cc
+JOIN products p ON cc.product_id = p.product_id
+GROUP BY cc.customer_id
+HAVING COUNT(DISTINCT p.product_category) = (SELECT COUNT(DISTINCT product_category) FROM products);
+
+--Question 8
+WITH numbered_rows AS (
+  SELECT
+    measurement_id,
+    measurement_value,
+    measurement_time,
+    DATE_TRUNC('day', measurement_time) AS measurement_day,
+    ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('day', measurement_time) ORDER BY measurement_time) AS row_num
+  FROM measurements
+)
+
+SELECT
+  measurement_day,
+  SUM(CASE WHEN row_num % 2 = 1 THEN measurement_value ELSE 0 END) AS sum_odd_values,
+  SUM(CASE WHEN row_num % 2 = 0 THEN measurement_value ELSE 0 END) AS sum_even_values
+FROM numbered_rows
+GROUP BY measurement_day
+ORDER BY measurement_day;
+
+
+
+
+
+
+
+
+
+
+
