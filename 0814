@@ -190,6 +190,61 @@ FROM numbered_rows
 GROUP BY measurement_day
 ORDER BY measurement_day;
 
+--Question 9
+WITH first_issue_date_cte AS (
+  SELECT
+    card_name,
+    MIN(issue_year * 100 + issue_month) AS min_issue_date
+  FROM monthly_cards_issued
+  GROUP BY card_name
+)
+
+SELECT
+  mci.card_name,
+  mci.issued_amount
+FROM monthly_cards_issued mci
+JOIN first_issue_date_cte fid ON mci.card_name = fid.card_name
+    AND (mci.issue_year * 100 + mci.issue_month) = fid.min_issue_date
+ORDER BY mci.issued_amount DESC;
+
+--Question 10
+WITH total_calls AS (
+    SELECT COUNT(*) AS total FROM phone_calls
+),
+international_calls AS (
+    SELECT COUNT(*) AS international
+    FROM phone_calls pc
+    JOIN phone_info pi1 ON pc.caller_id = pi1.caller_id
+    JOIN phone_info pi2 ON pc.receiver_id = pi2.caller_id
+    WHERE pi1.country_id <> pi2.country_id
+)
+
+SELECT
+    ROUND((international::NUMERIC / total::NUMERIC) * 100, 1) AS international_calls_pct
+FROM total_calls, international_calls;
+
+--Question 11
+--Result using a CTE 
+
+WITH ModeCTE AS (
+  SELECT item_count, order_occurrences,
+         RANK() OVER (ORDER BY order_occurrences DESC) AS rnk
+  FROM items_per_order
+)
+
+SELECT item_count
+FROM ModeCTE
+WHERE rnk = 1
+ORDER BY item_count;
+
+--Result using a subquery
+
+SELECT item_count
+FROM items_per_order
+WHERE order_occurrences=
+  (SELECT MAX(order_occurrences) FROM items_per_order)
+ORDER BY item_count;
+
 
 
 
